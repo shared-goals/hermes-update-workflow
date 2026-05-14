@@ -266,7 +266,41 @@ patch:
 
 `apply-patches.sh` uses `MY_HERMES_REPO` env var (default: `~/my-hermes`) to locate `patches/`. Never hardcode `$(dirname $0)/../patches` — it breaks when the script moves.
 
+## Update flow — key facts
+
+- `hermes update` auto-stashes dirty working tree before pulling — no manual unapply needed
+- When `hermes update` asks **"Restore local changes? [Y/n]"** — answer **N** if patches will be re-applied by the script. The script prints a visible warning before launching `hermes update`.
+- Do NOT use `hermes update --yes` — it answers Y to stash restore automatically, which may cause conflicts with patches.
+- After `hermes update`, patch files become stale (upstream line numbers shift). Regenerate with:
+  ```bash
+  cd ~/.hermes/hermes-agent
+  git diff HEAD -- hermes_cli/gateway.py > ~/my-hermes/patches/gateway-extra-env.patch
+  ```
+  Verify with: `git apply --check --reverse ~/my-hermes/patches/<name>.patch` — should say "Applied".
+- `hermes update` pulls to **latest main** (not a release tag). This is the correct behavior — do not override with custom git checkout logic.
+
+## Public skill repos — structure
+
+Both `hermes-git-sync` and `hermes-update-workflow` are published as separate repos under `shared-goals/` org. Each skill directory (`~/.hermes/skills/devops/<name>/`) has `.git` directly inside it — SSH remote (`git@github.com:shared-goals/<name>.git`). This allows `git push` directly from the skill dir.
+
+`my-hermes/my-skills/` is a **snapshot only** (no `.git`) — updated via `make skills-sync`. Never put `.git` there.
+
+To bootstrap a new skill repo with `.git`:
+```bash
+git clone https://github.com/shared-goals/<name>.git /tmp/<name>-tmp
+mv /tmp/<name>-tmp/.git ~/.hermes/skills/devops/<name>/.git
+cd ~/.hermes/skills/devops/<name>
+git remote set-url origin git@github.com:shared-goals/<name>.git
+```
+
 ## Pitfalls
+
+- **Patch file stale after update** — upstream line numbers shift. Always regenerate patch files after `hermes update` and verify with `git apply --check --reverse`.
+- **HTTPS remote blocks push in terminal** — skill repos must use SSH remote. Check with `git remote -v`; fix with `git remote set-url origin git@github.com:shared-goals/<name>.git`.
+- **`.git` in wrong place** — `.git` belongs in `~/.hermes/skills/devops/<name>/`, NOT in `my-hermes/my-skills/`. The snapshot dir has no `.git` by design.
+- **`hermes update` on custom branch** — updater detects non-main branch, switches to main, stashes. Always stay on `main` between update runs.
+
+
 
 - **`hermes update` from dashboard** — now guarded by ConfirmDialog (PR #23773),
   but if that patch isn't applied yet it will update without confirmation.
