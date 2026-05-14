@@ -16,9 +16,33 @@ triggers:
 
 ## Overview
 
-`hermes update` pulls latest `main` immediately with no confirmation.
-This workflow gates updates behind release tags, PR status checks,
-and explicit approval.
+This workflow wraps `hermes update` (the standard bundled updater) with:
+- GitHub PR/issue status checks for each local patch
+- Automatic patch re-application after update
+- Clean handling of the stash-restore prompt
+
+**Design decision (May 2026):** We switched from custom `git checkout origin/main`
+to delegating to `hermes update`. Reason: `hermes update` always pulls latest main
+(not just tags), handles Python/Node deps, restarts gateway, and syncs bundled skills.
+We don't replicate that logic — we wrap around it.
+
+### How `hermes update` handles dirty working tree
+
+1. If working tree is dirty → auto-stash (`hermes-update-autostash-YYYYMMDD`)
+2. `git pull` → latest main
+3. Asks: **"Restore local changes? [Y/n]"**
+   - `Y` → `git stash apply` (may conflict if patch is stale)
+   - `N` → changes stay in stash
+
+**`--yes` flag** auto-answers Y on restore — NOT what we want (patches may conflict).
+**Solution (KISS):** The script prints a visible warning before running `hermes update`:
+```
+⚠  If hermes asks "Restore local changes?" — answer N
+   (patches will be re-applied by this script afterward)
+```
+User answers N manually. If they know what they're doing, they can answer Y.
+
+`echo "n" | hermes update` is technically possible but hides information from the user — avoid it.
 
 See also: `references/web-build-pitfalls.md`, `references/skills-sync-internals.md` — manifest format, hash algorithm, how user-modified skills are detected and protected. — TypeScript version, devDeps, vite invocation, locale pitfalls, patch scope.
 
@@ -40,17 +64,17 @@ make update         # Full workflow with confirmation
 
 ## What `make update` does
 
-1. Fetch upstream tags → find latest release tag
-2. Compare with current (`git describe --tags`)
-3. **If new tag exists** → show changelog (first 40 lines), offer to update to tag `[y/N]`
-4. **If already on latest tag** → fetch `origin/main`, count commits ahead; if any, show count + offer to update to main `[y/N]` (weekly tag ≠ stable — main may have critical fixes)
-5. Check each `.yaml` sidecar via `gh issue/pr view` — resolved = patch can be retired
-6. Check which patches are **actually applied** right now (`git apply --check --reverse`)
-   - Already applied → ✅ skip, not an error
-   - Not applied → will be offered for re-apply after update
-7. Show full summary (version delta, PR statuses, patch states) **before any confirmation**
-8. **Two separate confirmations**: (a) update version? (b) re-apply patches?
-9. After update, re-check applied state (patches may have slipped after checkout)
+1. Check each `.yaml` sidecar via `gh issue/pr view` — resolved = patch can be retired
+2. Check which patches are **actually applied** right now (`git apply --check --reverse`)
+   - Applied → will be unapplied before update (via `echo "n" | hermes update` handles stash)
+   - Not applied → will be applied after update
+   - Stale (neither check passes) → flagged as needing rebuild
+3. Show full summary (PR statuses, patch states) **before any changes**
+4. Run `hermes update` with stdin=N (auto-declines stash restore) — pulls latest main, rebuilds deps, restarts gateway
+5. Re-apply all open patches via `git apply`
+
+**Key invariant:** working tree is always clean before `hermes update` runs.
+If patches were applied, the script unapplies them first via `git apply --reverse`.
 
 ## Patch Metadata Format (`patches/<name>.yaml`)\n\nEach `.patch` file has a sibling `.yaml` with metadata. No central `registry.yaml`.\n\n```yaml\npr: 12345           # upstream PR number (or null)\nissue: 6122         # upstream issue (preferred — more stable than PR)\ntitle: \"Short description\"\napply_to: path/to/file.py\nnotes: \"optional\"\n```\n\n**No `registry.yaml`** — replaced by per-patch `.yaml` files. Self-contained pairs: `my-fix.patch` + `my-fix.yaml`.\n\n**Issue vs PR as source of truth**: track `issue` when available — issues outlive PRs (duplicates get closed, PRs get superseded), and a CLOSED issue reliably means the fix landed upstream. PRs can be CLOSED without merging (rejected). The script checks issue first, falls back to PR `MERGED` state.
 
@@ -209,7 +233,9 @@ When making structural changes (moving files, changing config, deleting folders)
 
 ## Release policy
 
-Hermes releases are **weekly snapshots of `main`** — date-stamped tags, not curated stable builds. A new tag is not "more stable" than the commits between tags. `origin/main` may contain bug fixes that haven't landed in a tag yet. The workflow offers both options explicitly.
+Hermes releases are **weekly snapshots of `main`** — date-stamped tags, not curated stable builds. `origin/main` = latest state, always. We target latest main, not tags.
+
+**`make update` = correct entry point.** `hermes update` alone skips patch management.
 
 Add to `~/.zshrc` to prevent bypassing `make update`:
 ```zsh
@@ -228,6 +254,18 @@ patch:
 
 Uses `MY_HERMES_REPO` (default `~/my-hermes`) to locate `patches/*.patch`. Does NOT use relative paths — portable across machines. Legacy location `~/my-hermes/scripts/apply-patches.sh` is dead, delete it.
 
+## Script locations
+
+All scripts live **inside the skill directory** — not in `~/my-hermes/scripts/`. The Makefile calls them via absolute paths:
+
+```makefile
+UPDATE_SCRIPTS := $(HOME)/.hermes/skills/devops/hermes-update-workflow/scripts
+patch:
+    MY_HERMES_REPO=$(HERMES_DIR) bash $(UPDATE_SCRIPTS)/apply-patches.sh
+```
+
+`apply-patches.sh` uses `MY_HERMES_REPO` env var (default: `~/my-hermes`) to locate `patches/`. Never hardcode `$(dirname $0)/../patches` — it breaks when the script moves.
+
 ## Pitfalls
 
 - **`hermes update` from dashboard** — now guarded by ConfirmDialog (PR #23773),
@@ -238,6 +276,27 @@ Uses `MY_HERMES_REPO` (default `~/my-hermes`) to locate `patches/*.patch`. Does 
   - both fail → genuine conflict, manual fix needed
   Both `hermes-update.sh` and `apply-patches.sh` implement this logic.
 - **`git describe` returns commit hash** — means repo is on a commit between tags
-  (e.g. after manual `git pull`). Run `git checkout <tag>` to pin to a release.
+  (e.g. after manual `git pull`). Normal — we target `origin/main`, not tags.
 - **PR state "CLOSED" ≠ merged** — may mean upstream rejected the approach.
   Review before discarding the patch.
+- **Stale patches after upstream churn** — patches targeting `web/src/App.tsx`
+  or `hermes_cli/completion.py` go stale quickly (high-churn files). Check with
+  `git apply --check` before running `make update`. Rebuild stale patches using
+  the worktree method above.
+- **Patch line numbers drift after `hermes update`** — even if the logic is still applied,
+  `git apply --check` will fail because upstream shifted line numbers. Symptom:
+  `error: patch failed: hermes_cli/gateway.py:2452` (old line) but code is present.
+  Fix: regenerate the patch from current state:
+  ```bash
+  cd ~/.hermes/hermes-agent
+  git diff HEAD -- hermes_cli/gateway.py > ~/my-hermes/patches/gateway-extra-env.patch
+  # verify it matches what's applied:
+  git apply --check --reverse ~/my-hermes/patches/gateway-extra-env.patch && echo "✅ OK"
+  ```
+  Run this after every `hermes update` that brings significant upstream churn (50+ commits).
+- **`hermes update` auto-stash trap** — if patches are applied when you run
+  `hermes update` directly (not via `make update`), it auto-stashes them, then
+  asks "Restore?" — answering Y may cause conflicts on stale patches, answering
+  N leaves them unapplied with no obvious indication. Always use `make update`.
+- **`echo "n" | hermes update`** — the correct way to auto-decline stash restore
+  in non-interactive contexts. `--yes` flag does the opposite (auto-confirms restore).
