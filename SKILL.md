@@ -58,7 +58,7 @@ See also: `references/web-build-pitfalls.md`, `references/skills-sync-internals.
 ## Commands
 
 ```bash
-make check-update   # Report: new releases, PR statuses — no changes
+make update-check   # Report: new releases, PR statuses — no changes
 make update         # Full workflow with confirmation
 ```
 
@@ -211,7 +211,7 @@ User-modified skills tracked in git via `~/my-hermes/scripts/sync-my-skills.py` 
 
 ## Morning-brief integration
 
-`check-update` is called from `morning-brief` cron (8am Samara). The prompt reads detail from `cron-prompt.md` — if a new release is found, it is included in the daily summary. The agent does NOT auto-update; it reports and lets Sergey decide during the day.
+`update-check` is called from `morning-brief` cron (8am Samara). The prompt reads detail from `cron-prompt.md` — if a new release is found, it is included in the daily summary. The agent does NOT auto-update; it reports and lets Sergey decide during the day.
 
 `make update` is the interactive path — run manually in terminal when ready to update.
 
@@ -292,6 +292,44 @@ mv /tmp/<name>-tmp/.git ~/.hermes/skills/devops/<name>/.git
 cd ~/.hermes/skills/devops/<name>
 git remote set-url origin git@github.com:shared-goals/<name>.git
 ```
+
+## Why packages downgrade after `hermes update`
+
+`hermes update` does `git reset --hard origin/main` when fast-forward fails (diverged history),
+then runs `uv pip install -e .` from the updated `pyproject.toml`. If upstream pinned an older
+version of a dependency than what was locally installed, pip enforces the pin → downgrade.
+
+This is **intentional and correct** — hermes aligns deps strictly with `pyproject.toml` on `main`.
+It is NOT a bug in the update workflow.
+
+Example:
+```
+local:  SomeLib==1.5.0   (installed manually or via another tool)
+main:   SomeLib==1.3.0   (pinned in pyproject.toml)
+result: pip downgrades to 1.3.0
+```
+
+To pin a newer dep locally, you'd need to patch `pyproject.toml` — hard to maintain.
+Preferred approach: accept the managed deps, or open upstream PR to bump the pin.
+
+## Makefile target naming convention
+
+- `install-my-hermes` — bootstrap my-hermes on a new machine (NOT `install`, which is ambiguous with `hermes install`)
+- `update-check` — check for new releases, no changes (NOT `check-update`)
+- `update` — full interactive update with confirmation
+
+Keep target names unambiguous: prefix my-hermes management targets with `my-hermes-` or `update-`
+so they don't shadow standard tool commands (`install`, `update`, `check`).
+
+## Why packages get downgraded after `hermes update`
+
+`hermes update` (`_cmd_update_impl` in `hermes_cli/main.py`) runs:
+1. `git fetch origin`
+2. `git pull --ff-only origin main` — if history has diverged (upstream force-pushed or rebased):
+3. `git reset --hard origin/main` ← resets working tree to remote state exactly
+4. `uv pip install -e .` (or `pip install -e .`) — reinstalls from the now-reset `pyproject.toml`
+
+If `pyproject.toml` on `origin/main` pins a lower version of a dependency than what was locally installed, pip downgrades it. This is **intentional** — hermes enforces exact upstream dependency state. Workaround: patch `pyproject.toml` as a local patch (`.patch` file in `~/my-hermes/patches/`), not by manually installing packages.
 
 ## Pitfalls
 

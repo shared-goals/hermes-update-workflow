@@ -119,6 +119,23 @@ if [[ "$CHECK_ONLY" == "--check" ]]; then
   exit 0
 fi
 
+echo ""
+echo -e "  ${BOLD}Proceed with update?${NC} [u]pdate / [s]kip / Ctrl+C to abort"
+read -r -p "  Choice [u/s, default: u]: " CONFIRM
+case "${CONFIRM,,}" in
+  u|update|"" )
+    ;;  # continue
+  s|skip )
+    echo ""
+    ok "Skipped (no changes made)."
+    exit 0
+    ;;
+  * )
+    err "Aborted."
+    exit 1
+    ;;
+esac
+
 # ── 4. Unapply patches so working tree is clean ───────────────────────────────
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo ""
