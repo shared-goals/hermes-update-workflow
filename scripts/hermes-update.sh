@@ -122,7 +122,7 @@ fi
 echo ""
 echo -e "  ${BOLD}Proceed with update?${NC} [u]pdate / [s]kip / Ctrl+C to abort"
 read -r -p "  Choice [u/s, default: u]: " CONFIRM
-case "${CONFIRM,,}" in
+case "$(echo "${CONFIRM}" | tr '[:upper:]' '[:lower:]')" in
   u|update|"" )
     ;;  # continue
   s|skip )
