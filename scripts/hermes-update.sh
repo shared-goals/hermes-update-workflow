@@ -44,23 +44,25 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
 
   if [[ "$ISSUE" != "null" && -n "$ISSUE" ]]; then
     ISSUE_STATE=$(gh issue view "$ISSUE" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
+    ISSUE_LINK="https://github.com/${REPO}/issues/${ISSUE}"
     if [[ "$ISSUE_STATE" == "CLOSED" ]]; then
-      ok "Issue #${ISSUE} CLOSED — patch no longer needed: ${TITLE}"
+      ok "Issue CLOSED — patch no longer needed: ${TITLE} (${ISSUE_LINK})"
       PATCHES_MERGED+=("$patch_file")
       RESOLVED=true
     else
-      warn "Issue #${ISSUE} open  — ${TITLE}"
+      warn "Issue open  — ${TITLE} (${ISSUE_LINK})"
     fi
   fi
 
   if [[ "$RESOLVED" == "false" && "$PR" != "null" && -n "$PR" ]]; then
     PR_STATE=$(gh pr view "$PR" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
+    PR_LINK="https://github.com/${REPO}/pull/${PR}"
     if [[ "$PR_STATE" == "MERGED" ]]; then
-      ok "PR #${PR} MERGED — patch no longer needed: ${TITLE}"
+      ok "PR MERGED — patch no longer needed: ${TITLE} (${PR_LINK})"
       PATCHES_MERGED+=("$patch_file")
       RESOLVED=true
     else
-      warn "PR #${PR} open  — ${TITLE}"
+      warn "PR open  — ${TITLE} (${PR_LINK})"
     fi
   fi
 

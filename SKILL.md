@@ -279,6 +279,11 @@ patch:
   Verify with: `git apply --check --reverse ~/my-hermes/patches/<name>.patch` — should say "Applied".
 - `hermes update` pulls to **latest main** (not a release tag). This is the correct behavior — do not override with custom git checkout logic.
 
+## Stale upstream PRs
+
+See `references/stale-upstream-prs.md` — pattern for backporting a minimal fix
+from a stale upstream PR instead of waiting for merge or fighting rebase conflicts.
+
 ## Public skill repos — structure
 
 Both `hermes-git-sync` and `hermes-update-workflow` are published as separate repos under `shared-goals/` org. Each skill directory (`~/.hermes/skills/devops/<name>/`) has `.git` directly inside it — SSH remote (`git@github.com:shared-goals/<name>.git`). This allows `git push` directly from the skill dir.
