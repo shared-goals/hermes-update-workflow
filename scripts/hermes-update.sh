@@ -166,14 +166,17 @@ if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
     patch_path="${PATCHES_DIR}/${patch_file}"
     [[ -f "$patch_path" ]] || { err "Patch file not found: ${patch_path}"; continue; }
 
-    if git apply --check "$patch_path" 2>/dev/null; then
+    if git apply --check --3way "$patch_path" 2>/dev/null; then
+      git apply --3way "$patch_path"
+      ok "Applied (3-way): ${patch_file}"
+    elif git apply --check "$patch_path" 2>/dev/null; then
       git apply "$patch_path"
       ok "Applied: ${patch_file}"
     elif git apply --check --reverse "$patch_path" 2>/dev/null; then
       ok "Already applied (skipping): ${patch_file}"
     else
       err "CONFLICT — patch did not apply cleanly: ${patch_file}"
-      err "  Needs rebuild: git diff main...fork/branch -- file > patches/${patch_file}"
+      err "  3-way merge also failed. Needs rebuild: git diff main...fork/branch -- file > patches/${patch_file}"
     fi
   done
 fi

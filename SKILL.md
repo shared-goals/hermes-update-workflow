@@ -338,6 +338,21 @@ If `pyproject.toml` on `origin/main` pins a lower version of a dependency than w
 
 ## Pitfalls
 
+- **"Patches look applied but aren't" — silent loss after `hermes update`** — The update flow answers N to "Restore local changes?", which discards the stashed patches. Next time you check, all 5 patches show "Not applied". This is correct behavior, not a bug. The user may misremember that patches were applied because they ran `make patch` weeks ago, forgetting that a subsequent `hermes update` wiped them. Run `make patch` to re-apply.
+- **Verifying actual patch state (3-level check)** — When `make update-check` reports unexpected state, verify independently:
+  ```bash
+  cd ~/.hermes/hermes-agent
+  for p in ~/my-hermes/patches/*.patch; do
+    name=$(basename "$p")
+    git apply --check "$p" 2>/dev/null && fwd=1 || fwd=0
+    git apply --check --reverse "$p" 2>/dev/null && rev=1 || rev=0
+    echo "$name: fwd=$fwd rev=$rev  ($( [ $rev -eq 1 ] && echo APPLIED || echo NOT-applied ))"
+  done
+  ```
+  - `fwd=1, rev=0` → **not applied** (patch can be applied cleanly)
+  - `fwd=0, rev=1` → **applied** (patch can be reversed cleanly)
+  - `fwd=0, rev=0` → **stale** (patch conflicts in both directions — needs rebuild)
+  Cross-check with `grep` for the actual code the patch should introduce (e.g. `grep 'extra_env' hermes_cli/gateway.py`).
 - **Patch file stale after update** — upstream line numbers shift. Always regenerate patch files after `hermes update` and verify with `git apply --check --reverse`.
 - **HTTPS remote blocks push in terminal** — skill repos must use SSH remote. Check with `git remote -v`; fix with `git remote set-url origin git@github.com:shared-goals/<name>.git`.
 - **`.git` in wrong place** — `.git` belongs in `~/.hermes/skills/devops/<name>/`, NOT in `my-hermes/my-skills/`. The snapshot dir has no `.git` by design.
