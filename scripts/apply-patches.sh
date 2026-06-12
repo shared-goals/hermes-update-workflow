@@ -5,20 +5,32 @@ set -euo pipefail
 
 REPO="${MY_HERMES_REPO:-$HOME/my-hermes}"
 PATCH_DIR="$REPO/patches"
-HERMES_SRC="$HOME/.hermes/hermes-agent"
+HERMES_SRC="${HERMES_SRC:-$HOME/.hermes/hermes-agent}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/patch-helpers.sh"
 
 echo "Applying patches from $PATCH_DIR to $HERMES_SRC..."
 for patch in "$PATCH_DIR"/*.patch; do
   [ -s "$patch" ] || continue
   echo "  → $(basename "$patch")"
-  if git -C "$HERMES_SRC" apply --check --3way "$patch" 2>/dev/null; then
-    git -C "$HERMES_SRC" apply --3way "$patch" && echo "    ✅ OK (3-way)"
-  elif git -C "$HERMES_SRC" apply --check "$patch" 2>/dev/null; then
-    git -C "$HERMES_SRC" apply "$patch" && echo "    ✅ OK"
-  elif git -C "$HERMES_SRC" apply --check --reverse "$patch" 2>/dev/null; then
-    echo "    ✅ Already applied (skipping)"
+  if apply_managed_patch "$HERMES_SRC" "$patch"; then
+    case "$PATCH_APPLY_RESULT" in
+      applied_direct)
+        echo "    ✅ OK"
+        ;;
+      applied_3way)
+        echo "    ✅ OK (3-way)"
+        ;;
+      applied_3way_refreshed)
+        echo "    ✅ OK (3-way, refreshed patch context)"
+        ;;
+      already_applied)
+        echo "    ✅ Already applied (skipping)"
+        ;;
+    esac
   else
-    echo "    ❌ FAILED — 3-way and direct apply failed; rebuild patch"
+    echo "    ❌ FAILED — 3-way would leave unresolved conflicts; rebuild patch"
   fi
 done
 

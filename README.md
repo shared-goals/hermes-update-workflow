@@ -56,8 +56,8 @@ patches/
 
 `my-fix.yaml` format:
 ```yaml
-pr: 12345
-issue: 6122
+pr: "https://github.com/NousResearch/hermes-agent/pull/12345"
+issue: "https://github.com/NousResearch/hermes-agent/issues/6122"
 title: "Short description"
 apply_to: path/to/file.py
 ```

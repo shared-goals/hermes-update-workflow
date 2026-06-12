@@ -11,10 +11,13 @@
 #   6. Re-apply patches that are still needed
 set -euo pipefail
 
-HERMES_DIR="${HOME}/.hermes/hermes-agent"
+HERMES_DIR="${HERMES_DIR:-${HOME}/.hermes/hermes-agent}"
 PATCHES_DIR="${MY_HERMES_REPO:-${HOME}/my-hermes}/patches"
 REPO="NousResearch/hermes-agent"
 CHECK_ONLY="${1:-}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/patch-helpers.sh"
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 DIM='\033[2m'
@@ -24,6 +27,24 @@ ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 warn() { echo -e "  ${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*"; }
 info() { echo -e "  ${DIM}$*${NC}\033[0m"; }
+
+extract_issue_id_from_url() {
+  local url="$1"
+  if [[ "$url" =~ ^https://github\.com/[^/]+/[^/]+/issues/([0-9]+)([/?#].*)?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+extract_pr_id_from_url() {
+  local url="$1"
+  if [[ "$url" =~ ^https://github\.com/[^/]+/[^/]+/pull/([0-9]+)([/?#].*)?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
 
 cd "$HERMES_DIR"
 
@@ -37,14 +58,20 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
   [[ -f "$yaml_file" ]] || continue
   patch_file="$(basename "${yaml_file%.yaml}.patch")"
 
-  ISSUE=$(grep '^issue:' "$yaml_file" | awk '{print $2}' | tr -d '"')
-  PR=$(grep '^pr:' "$yaml_file" | awk '{print $2}' | tr -d '"')
+  ISSUE_URL=$(grep '^issue:' "$yaml_file" | awk '{print $2}' | tr -d '"')
+  PR_URL=$(grep '^pr:' "$yaml_file" | awk '{print $2}' | tr -d '"')
   TITLE=$(grep '^title:' "$yaml_file" | sed 's/^title: *//' | tr -d '"')
   RESOLVED=false
 
-  if [[ "$ISSUE" != "null" && -n "$ISSUE" ]]; then
-    ISSUE_STATE=$(gh issue view "$ISSUE" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
-    ISSUE_LINK="https://github.com/${REPO}/issues/${ISSUE}"
+  if [[ "$ISSUE_URL" != "null" && -n "$ISSUE_URL" ]]; then
+    ISSUE_ID="$(extract_issue_id_from_url "$ISSUE_URL" || true)"
+    if [[ -z "$ISSUE_ID" ]]; then
+      err "Invalid issue URL in ${yaml_file}: ${ISSUE_URL}"
+      err "  Expected format: https://github.com/<owner>/<repo>/issues/<number>"
+      exit 1
+    fi
+    ISSUE_STATE=$(gh issue view "$ISSUE_ID" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
+    ISSUE_LINK="$ISSUE_URL"
     if [[ "$ISSUE_STATE" == "CLOSED" ]]; then
       ok "Issue CLOSED — patch no longer needed: ${TITLE} (${ISSUE_LINK})"
       PATCHES_MERGED+=("$patch_file")
@@ -54,9 +81,15 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
     fi
   fi
 
-  if [[ "$RESOLVED" == "false" && "$PR" != "null" && -n "$PR" ]]; then
-    PR_STATE=$(gh pr view "$PR" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
-    PR_LINK="https://github.com/${REPO}/pull/${PR}"
+  if [[ "$RESOLVED" == "false" && "$PR_URL" != "null" && -n "$PR_URL" ]]; then
+    PR_ID="$(extract_pr_id_from_url "$PR_URL" || true)"
+    if [[ -z "$PR_ID" ]]; then
+      err "Invalid PR URL in ${yaml_file}: ${PR_URL}"
+      err "  Expected format: https://github.com/<owner>/<repo>/pull/<number>"
+      exit 1
+    fi
+    PR_STATE=$(gh pr view "$PR_ID" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")
+    PR_LINK="$PR_URL"
     if [[ "$PR_STATE" == "MERGED" ]]; then
       ok "PR MERGED — patch no longer needed: ${TITLE} (${PR_LINK})"
       PATCHES_MERGED+=("$patch_file")
@@ -166,17 +199,24 @@ if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
     patch_path="${PATCHES_DIR}/${patch_file}"
     [[ -f "$patch_path" ]] || { err "Patch file not found: ${patch_path}"; continue; }
 
-    if git apply --check --3way "$patch_path" 2>/dev/null; then
-      git apply --3way "$patch_path"
-      ok "Applied (3-way): ${patch_file}"
-    elif git apply --check "$patch_path" 2>/dev/null; then
-      git apply "$patch_path"
-      ok "Applied: ${patch_file}"
-    elif git apply --check --reverse "$patch_path" 2>/dev/null; then
-      ok "Already applied (skipping): ${patch_file}"
+    if apply_managed_patch "$HERMES_DIR" "$patch_path"; then
+      case "$PATCH_APPLY_RESULT" in
+        applied_direct)
+          ok "Applied: ${patch_file}"
+          ;;
+        applied_3way)
+          ok "Applied (3-way): ${patch_file}"
+          ;;
+        applied_3way_refreshed)
+          ok "Applied (3-way, refreshed patch context): ${patch_file}"
+          ;;
+        already_applied)
+          ok "Already applied (skipping): ${patch_file}"
+          ;;
+      esac
     else
-      err "CONFLICT — patch did not apply cleanly: ${patch_file}"
-      err "  3-way merge also failed. Needs rebuild: git diff main...fork/branch -- file > patches/${patch_file}"
+      err "CONFLICT — patch would leave unresolved conflicts: ${patch_file}"
+      err "  Rebuild it from current main if still needed, or keep the refreshed local diff after manual resolution."
     fi
   done
 fi

@@ -76,14 +76,30 @@ make update         # Full workflow with confirmation
 **Key invariant:** working tree is always clean before `hermes update` runs.
 If patches were applied, the script unapplies them first via `git apply --reverse`.
 
-## Patch Metadata Format (`patches/<name>.yaml`)\n\nEach `.patch` file has a sibling `.yaml` with metadata. No central `registry.yaml`.\n\n```yaml\npr: 12345           # upstream PR number (or null)\nissue: 6122         # upstream issue (preferred — more stable than PR)\ntitle: \"Short description\"\napply_to: path/to/file.py\nnotes: \"optional\"\n```\n\n**No `registry.yaml`** — replaced by per-patch `.yaml` files. Self-contained pairs: `my-fix.patch` + `my-fix.yaml`.\n\n**Issue vs PR as source of truth**: track `issue` when available — issues outlive PRs (duplicates get closed, PRs get superseded), and a CLOSED issue reliably means the fix landed upstream. PRs can be CLOSED without merging (rejected). The script checks issue first, falls back to PR `MERGED` state.
+## Patch Metadata Format (`patches/<name>.yaml`)
+
+Each `.patch` file has a sibling `.yaml` with metadata. No central `registry.yaml`.
+
+```yaml
+pr: "https://github.com/NousResearch/hermes-agent/pull/12345"
+issue: "https://github.com/NousResearch/hermes-agent/issues/6122"
+title: "Short description"
+apply_to: path/to/file.py
+notes: "optional"
+```
+
+`pr` and `issue` must be full GitHub URLs (no numeric IDs).
+
+**No `registry.yaml`** — replaced by per-patch `.yaml` files. Self-contained pairs: `my-fix.patch` + `my-fix.yaml`.
+
+**Issue vs PR as source of truth**: track `issue` when available — issues outlive PRs (duplicates get closed, PRs get superseded), and a CLOSED issue reliably means the fix landed upstream. PRs can be CLOSED without merging (rejected). The script checks issue first, falls back to PR `MERGED` state.
 
 ## Adding a New Patch
 
 1. Create branch, make changes, push, open PR
 2. Create related upstream issue (if none exists) and link PR via `Closes #N` in body
 3. Save patch **minimally** — see warning below
-4. Add entry to `registry.yaml` (with both `pr` and `issue` fields)
+4. Add/update sibling `patches/<name>.yaml` metadata (with `pr` and `issue` URL fields)
 5. Commit both to `my-hermes`
 
 ### Generating a clean minimal patch
