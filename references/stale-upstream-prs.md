@@ -55,8 +55,8 @@ Don't fork the PR branch and rebase — that drags in stale context. Instead:
 When the upstream PR merges and the fix lands in `origin/main`:
 1. `make update` (pulls the fix)
 2. `git apply --check --reverse ~/my-hermes/patches/<name>.patch` returns
-   "already applied" — the script detects and removes the patch file
-3. No manual cleanup needed if `apply-patches.sh` handles this case
+   "already applied" — `make update` detects and skips re-applying the patch
+3. Remove the local patch pair manually from `~/my-hermes/patches/` when you no longer need to track it
 
 ## Real example (May 2026)
 

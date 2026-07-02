@@ -8,7 +8,7 @@ A [Hermes Agent](https://hermes-agent.nousresearch.com) skill for safely updatin
 
 ## Works well with
 
-[hermes-git-sync](https://github.com/shared-goals/hermes-git-sync) — the template `Makefile` from that skill includes `make update`, `make check-update`, and `make patch` targets that call into this skill's scripts.
+[hermes-git-sync](https://github.com/shared-goals/hermes-git-sync) — the template `Makefile` from that skill includes `make update`, `make patch-pr`, and `make patch-files` targets that call into this skill's scripts.
 
 ## Install
 
@@ -22,16 +22,23 @@ hermes skills install hermes-update-workflow
 Via `make` (recommended — requires [hermes-git-sync](https://github.com/shared-goals/hermes-git-sync) Makefile):
 
 ```bash
-make check-update    # report new releases and patch PR statuses — no changes
-make update          # full workflow: review, confirm, update, re-apply patches
-make patch           # re-apply patches only (after manual hermes update)
+make update          # show status first, then ask whether to apply
+make patch-pr https://github.com/NousResearch/hermes-agent/pull/56911
+make patch-files gateway/run.py cli.py
 ```
 
 Or directly:
 
 ```bash
-MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/scripts/hermes-update.sh --check
 MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/scripts/hermes-update.sh
+
+# Apply upstream PR locally + generate managed patch files
+MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/scripts/patch-from-pr-or-files.sh \
+	--pr https://github.com/NousResearch/hermes-agent/pull/56911
+
+# Create managed patch files from selected local changed files
+MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/scripts/patch-from-pr-or-files.sh \
+	--from-files --file gateway/run.py --file cli.py
 ```
 
 ## What `make update` does

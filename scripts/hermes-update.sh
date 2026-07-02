@@ -48,7 +48,47 @@ extract_pr_id_from_url() {
 
 cd "$HERMES_DIR"
 
-# ── 1. Check patch statuses (GitHub) ─────────────────────────────────────────
+# ── 1. Check update status (commits + latest release) ───────────────────────
+step "Upstream update status"
+
+# Refresh remote refs/tags best-effort so commit/release checks are current.
+if git fetch --quiet origin main --tags >/dev/null 2>&1; then
+  ok "Fetched upstream refs"
+else
+  warn "Could not refresh upstream refs (using local remote cache)"
+fi
+
+BEHIND_COUNT="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "unknown")"
+if [[ "$BEHIND_COUNT" == "0" ]]; then
+  ok "Commits behind origin/main: 0 (up to date)"
+elif [[ "$BEHIND_COUNT" =~ ^[0-9]+$ ]]; then
+  warn "Commits behind origin/main: ${BEHIND_COUNT}"
+else
+  warn "Commits behind origin/main: unknown"
+fi
+
+LATEST_RELEASE_TAG=""
+LATEST_RELEASE_URL=""
+LATEST_RELEASE_RAW="$(gh release view --repo "$REPO" --json tagName,url,isDraft,isPrerelease -q 'select(.isDraft==false and .isPrerelease==false) | .tagName + "|" + .url' 2>/dev/null || true)"
+if [[ -n "$LATEST_RELEASE_RAW" ]]; then
+  LATEST_RELEASE_TAG="${LATEST_RELEASE_RAW%%|*}"
+  LATEST_RELEASE_URL="${LATEST_RELEASE_RAW#*|}"
+fi
+
+LOCAL_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+if [[ -n "$LATEST_RELEASE_TAG" && -n "$LATEST_RELEASE_URL" ]]; then
+  if [[ "$LOCAL_TAG" != "$LATEST_RELEASE_TAG" ]]; then
+    warn "New release available: ${LATEST_RELEASE_TAG}"
+    info "    · ${LATEST_RELEASE_URL}"
+  else
+    ok "Latest release already present: ${LATEST_RELEASE_TAG}"
+    info "    · ${LATEST_RELEASE_URL}"
+  fi
+else
+  warn "Could not resolve latest release info"
+fi
+
+# ── 2. Check patch statuses (GitHub) ─────────────────────────────────────────
 step "Local patches — upstream status"
 
 PATCHES_OPEN=()     # PR/issue still open → need re-apply after update
@@ -102,7 +142,7 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
   [[ "$RESOLVED" == "false" ]] && PATCHES_OPEN+=("$patch_file")
 done
 
-# ── 2. Check which patches are currently applied ──────────────────────────────
+# ── 3. Check which patches are currently applied ──────────────────────────────
 step "Local patches — applied state"
 
 PATCHES_APPLIED=()   # open + already applied (need unapply before update)
@@ -124,7 +164,7 @@ for patch_file in "${PATCHES_OPEN[@]+"${PATCHES_OPEN[@]}"}"; do
   fi
 done
 
-# ── 3. Summary ────────────────────────────────────────────────────────────────
+# ── 4. Summary ────────────────────────────────────────────────────────────────
 step "Summary"
 
 echo -e "  ${BOLD}Update:${NC}   will run ${BOLD}hermes update${NC} (→ latest main)"
@@ -171,7 +211,7 @@ case "$(echo "${CONFIRM}" | tr '[:upper:]' '[:lower:]')" in
     ;;
 esac
 
-# ── 4. Unapply patches so working tree is clean ───────────────────────────────
+# ── 5. Unapply patches so working tree is clean ───────────────────────────────
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo ""
   step "Unapplying patches before update"
@@ -182,7 +222,7 @@ if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   done
 fi
 
-# ── 5. Run hermes update ──────────────────────────────────────────────────────
+# ── 6. Run hermes update ──────────────────────────────────────────────────────
 echo ""
 step "Running hermes update"
 echo -e "  ${YELLOW}⚠${NC}  If hermes asks ${BOLD}\"Restore local changes?\"${NC} — answer ${BOLD}N${NC}"
@@ -191,7 +231,7 @@ echo ""
 
 hermes update
 
-# ── 6. Apply patches ─────────────────────────────────────────────────────────
+# ── 7. Apply patches ─────────────────────────────────────────────────────────
 if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
   echo ""
   step "Applying patches"
