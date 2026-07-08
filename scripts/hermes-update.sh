@@ -259,6 +259,14 @@ if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
       err "  Rebuild it from current main if still needed, or keep the refreshed local diff after manual resolution."
     fi
   done
+
+  echo ""
+  step "Restarting Hermes gateway"
+  if hermes gateway restart; then
+    ok "Hermes gateway restarted"
+  else
+    warn "Hermes gateway restart failed — check gateway status manually"
+  fi
 fi
 
 echo ""
