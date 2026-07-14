@@ -3,12 +3,12 @@
 # Usage: bash hermes-update.sh [--check]  (--check = report only, no changes)
 #
 # Flow:
-#   1. Check patch PR statuses on GitHub
-#   2. Show which patches are applied / pending
+#   1. Fetch and identify the exact latest origin/main commit
+#   2. Check patch PR statuses and applied state
 #   3. If --check: exit here
-#   4. Unapply any applied patches (so working tree is clean for hermes update)
-#   5. Run `hermes update` (standard bundled updater → always pulls latest main)
-#   6. Re-apply patches that are still needed
+#   4. Unapply any applied patches and require a clean tree
+#   5. Run `hermes update --branch main --backup`
+#   6. Re-apply patches and verify HEAD == origin/main
 set -euo pipefail
 
 HERMES_DIR="${HERMES_DIR:-${HOME}/.hermes/hermes-agent}"
@@ -16,6 +16,12 @@ PATCHES_DIR="${MY_HERMES_REPO:-${HOME}/my-hermes}/patches"
 REPO="NousResearch/hermes-agent"
 CHECK_ONLY="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+HERMES_BIN="${HERMES_DIR}/venv/bin/hermes"
+
+if [[ ! -x "$HERMES_BIN" ]]; then
+  echo "Error: hermes binary not found at $HERMES_BIN" >&2
+  exit 1
+fi
 
 source "$SCRIPT_DIR/patch-helpers.sh"
 
@@ -51,18 +57,31 @@ cd "$HERMES_DIR"
 # ── 1. Check update status (commits + latest release) ───────────────────────
 step "Upstream update status"
 
-# Refresh remote refs/tags best-effort so commit/release checks are current.
-if git fetch --quiet origin main --tags >/dev/null 2>&1; then
-  ok "Fetched upstream refs"
-else
-  warn "Could not refresh upstream refs (using local remote cache)"
+# A safe latest-main update cannot use a stale cached ref.
+if ! git fetch --quiet origin main --tags; then
+  err "Could not refresh origin/main; refusing to report or install a stale target"
+  exit 1
+fi
+ok "Fetched upstream refs"
+
+CURRENT_SHA="$(git rev-parse HEAD)"
+TARGET_SHA="$(git rev-parse origin/main)"
+
+if ! git merge-base --is-ancestor HEAD origin/main; then
+  err "Local HEAD cannot fast-forward to origin/main; refusing to update"
+  info "Current: ${CURRENT_SHA}"
+  info "Target:  ${TARGET_SHA}"
+  exit 1
 fi
 
 BEHIND_COUNT="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "unknown")"
+CHANGED_FILES="$(git diff --name-only HEAD..origin/main | wc -l | tr -d ' ')"
+info "Current: ${CURRENT_SHA}"
+info "Target:  ${TARGET_SHA}"
 if [[ "$BEHIND_COUNT" == "0" ]]; then
-  ok "Commits behind origin/main: 0 (up to date)"
+  ok "Gap: 0 commits, ${CHANGED_FILES} changed files (up to date)"
 elif [[ "$BEHIND_COUNT" =~ ^[0-9]+$ ]]; then
-  warn "Commits behind origin/main: ${BEHIND_COUNT}"
+  warn "Gap: ${BEHIND_COUNT} commits, ${CHANGED_FILES} changed files"
 else
   warn "Commits behind origin/main: unknown"
 fi
@@ -167,7 +186,8 @@ done
 # ── 4. Summary ────────────────────────────────────────────────────────────────
 step "Summary"
 
-echo -e "  ${BOLD}Update:${NC}   will run ${BOLD}hermes update${NC} (→ latest main)"
+echo -e "  ${BOLD}Update:${NC}   ${CURRENT_SHA:0:12} → ${TARGET_SHA:0:12} (latest origin/main)"
+echo -e "  ${BOLD}Backup:${NC}   full pre-update Hermes backup is mandatory"
 
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo -e "  ${BOLD}Unapply:${NC}  ${#PATCHES_APPLIED[@]} patch(es) before update:"
@@ -223,13 +243,20 @@ if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
 fi
 
 # ── 6. Run hermes update ──────────────────────────────────────────────────────
+if [[ -n "$(git status --porcelain)" ]]; then
+  err "Working tree is still dirty after patch unapply; refusing to update"
+  git status --short
+  exit 1
+fi
+
 echo ""
 step "Running hermes update"
 echo -e "  ${YELLOW}⚠${NC}  If hermes asks ${BOLD}\"Restore local changes?\"${NC} — answer ${BOLD}N${NC}"
 echo -e "     (patches will be re-applied by this script afterward)"
+info "Rollback code SHA: ${CURRENT_SHA}"
 echo ""
 
-hermes update
+"$HERMES_BIN" update --branch main --backup
 
 # ── 7. Apply patches ─────────────────────────────────────────────────────────
 if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
@@ -269,5 +296,18 @@ if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
   fi
 fi
 
+if ! git fetch --quiet origin main; then
+  err "Update completed, but origin/main could not be refreshed for final verification"
+  exit 1
+fi
+
+FINAL_SHA="$(git rev-parse HEAD)"
+LATEST_SHA="$(git rev-parse origin/main)"
+if [[ "$FINAL_SHA" != "$LATEST_SHA" ]]; then
+  err "Update finished at ${FINAL_SHA}, but latest origin/main is ${LATEST_SHA}"
+  err "Run make update again after reviewing the new upstream commits"
+  exit 1
+fi
+
 echo ""
-ok "${BOLD}Done.${NC}"
+ok "${BOLD}Done.${NC} HEAD is latest origin/main: ${FINAL_SHA}"

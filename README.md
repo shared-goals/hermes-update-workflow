@@ -4,7 +4,7 @@ A [Hermes Agent](https://hermes-agent.nousresearch.com) skill for safely updatin
 
 ## The problem
 
-`hermes update` pulls the latest `main` immediately with no confirmation. This workflow gates updates behind release tags, PR status checks, and explicit approval — so you never accidentally update mid-session or lose your local patches.
+`hermes update` pulls the latest `main` immediately with no confirmation. This workflow shows the exact target commit, requires a fast-forward and clean tree, creates a full backup, checks patch status, and asks for explicit approval before updating.
 
 ## Works well with
 
@@ -43,13 +43,14 @@ MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/s
 
 ## What `make update` does
 
-1. Fetches upstream tags → finds latest release tag
-2. Compares with current version
-3. Shows changelog and asks for confirmation before updating
+1. Fetches `origin/main` and tags, failing closed if the fetch fails
+2. Shows exact current/target SHAs and the real commit/file gap
+3. Requires a fast-forward path and a clean tree after managed patches are removed
 4. Checks each patch's PR/issue status — resolved patches can be retired
-5. Checks which patches are already applied (skips them, no false conflicts)
-6. Shows full summary before any confirmation
-7. Two separate confirmations: update version? re-apply patches?
+5. Shows the full summary and asks for confirmation
+6. Runs `hermes update --branch main --backup`
+7. Re-applies still-needed patches and restarts the gateway when necessary
+8. Verifies that the resulting `HEAD` equals the latest `origin/main`
 
 ## Patch management
 
