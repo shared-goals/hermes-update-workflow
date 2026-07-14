@@ -14,8 +14,11 @@ set -euo pipefail
 HERMES_DIR="${HERMES_DIR:-${HOME}/.hermes/hermes-agent}"
 PATCHES_DIR="${MY_HERMES_REPO:-${HOME}/my-hermes}/patches"
 REPO="NousResearch/hermes-agent"
+WORKFLOW_REPO="shared-goals/hermes-update-workflow"
+WORKFLOW_ARCHIVE_URL="${HERMES_UPDATE_WORKFLOW_ARCHIVE_URL:-https://github.com/${WORKFLOW_REPO}/archive/refs/heads/main.tar.gz}"
 CHECK_ONLY="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HERMES_BIN="${HERMES_DIR}/venv/bin/hermes"
 
 if [[ ! -x "$HERMES_BIN" ]]; then
@@ -33,6 +36,62 @@ ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 warn() { echo -e "  ${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*"; }
 info() { echo -e "  ${DIM}$*${NC}\033[0m"; }
+
+check_workflow_freshness() {
+  local temp_dir archive_path upstream_root upstream_file relative_path
+  local differing_files=0
+
+  step "Update workflow status"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    warn "Cannot check ${WORKFLOW_REPO}: curl is unavailable"
+    return 0
+  fi
+
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/hermes-update-workflow.XXXXXX")"
+  archive_path="${temp_dir}/workflow.tar.gz"
+
+  if ! curl -fsSL --connect-timeout 5 --max-time 20 "$WORKFLOW_ARCHIVE_URL" -o "$archive_path"; then
+    warn "Could not check ${WORKFLOW_REPO}@main (continuing without freshness data)"
+    rm -rf "$temp_dir"
+    return 0
+  fi
+
+  if ! tar -xzf "$archive_path" -C "$temp_dir"; then
+    warn "Could not unpack ${WORKFLOW_REPO}@main (continuing without freshness data)"
+    rm -rf "$temp_dir"
+    return 0
+  fi
+
+  upstream_root="$(find "$temp_dir" -mindepth 1 -maxdepth 1 -type d | head -1)"
+  if [[ -z "$upstream_root" ]]; then
+    warn "Downloaded workflow archive has no source directory"
+    rm -rf "$temp_dir"
+    return 0
+  fi
+
+  while IFS= read -r upstream_file; do
+    relative_path="${upstream_file#${upstream_root}/}"
+    if [[ ! -f "${SKILL_ROOT}/${relative_path}" ]] || ! cmp -s "$upstream_file" "${SKILL_ROOT}/${relative_path}"; then
+      differing_files=$((differing_files + 1))
+    fi
+  done < <(
+    find "$upstream_root" -type f \
+      \( -path "$upstream_root/README.md" -o -path "$upstream_root/SKILL.md" \
+      -o -path "$upstream_root/references/*" -o -path "$upstream_root/scripts/*" \) \
+      | sort
+  )
+
+  rm -rf "$temp_dir"
+
+  if [[ "$differing_files" -eq 0 ]]; then
+    ok "Workflow matches ${WORKFLOW_REPO}@main"
+  else
+    warn "Update workflow is outdated or locally modified (${differing_files} file(s) differ)"
+    info "    · https://github.com/${WORKFLOW_REPO}"
+    info "    · Refresh it before updating Hermes; hub install: hermes skills update hermes-update-workflow"
+  fi
+}
 
 extract_issue_id_from_url() {
   local url="$1"
@@ -53,6 +112,8 @@ extract_pr_id_from_url() {
 }
 
 cd "$HERMES_DIR"
+
+check_workflow_freshness
 
 # ── 1. Check update status (commits + latest release) ───────────────────────
 step "Upstream update status"

@@ -43,14 +43,15 @@ MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/s
 
 ## What `make update` does
 
-1. Fetches `origin/main` and tags, failing closed if the fetch fails
-2. Shows exact current/target SHAs and the real commit/file gap
-3. Requires a fast-forward path and a clean tree after managed patches are removed
-4. Checks each patch's PR/issue status — resolved patches can be retired
-5. Shows the full summary and asks for confirmation
-6. Runs `hermes update --branch main --backup`
-7. Re-applies still-needed patches and restarts the gateway when necessary
-8. Verifies that the resulting `HEAD` equals the latest `origin/main`
+1. Shows whether the installed update workflow matches this repository's latest `main`
+2. Fetches `origin/main` and tags, failing closed if the fetch fails
+3. Shows exact current/target SHAs and the real commit/file gap
+4. Requires a fast-forward path and a clean tree after managed patches are removed
+5. Checks each patch's PR/issue status — resolved patches can be retired
+6. Shows the full summary and asks for confirmation
+7. Runs `hermes update --branch main --backup`
+8. Re-applies still-needed patches and restarts the gateway when necessary
+9. Verifies that the resulting `HEAD` equals the latest `origin/main`
 
 ## Patch management
 

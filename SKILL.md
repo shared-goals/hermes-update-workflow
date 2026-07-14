@@ -68,20 +68,24 @@ make patch-files gateway/run.py cli.py
 
 `make update` performs this sequence:
 
-1. Fetch `origin/main`; fail instead of using a stale cached ref.
-2. Show the exact current and target SHAs plus the real commit and changed-file gap.
-3. Require that the local checkout can fast-forward to `origin/main`.
-4. Read patch sidecars (`*.yaml`) from `~/my-hermes/patches`.
-5. Resolve upstream status (issue first, PR second).
-6. Detect per-patch local state:
+1. Compare the installed workflow files with `shared-goals/hermes-update-workflow@main`.
+   - Matching files show a green freshness banner.
+   - Outdated or locally modified files show a warning and refresh guidance.
+   - A failed freshness lookup is non-blocking because Hermes update safety still runs locally.
+2. Fetch `origin/main`; fail instead of using a stale cached ref.
+3. Show the exact current and target SHAs plus the real commit and changed-file gap.
+4. Require that the local checkout can fast-forward to `origin/main`.
+5. Read patch sidecars (`*.yaml`) from `~/my-hermes/patches`.
+6. Resolve upstream status (issue first, PR second).
+7. Detect per-patch local state:
    - not applied
    - applied
    - stale/conflicting
-7. Show summary before changes and ask for confirmation.
-8. Remove applied managed patches and require a clean working tree.
-9. Run `hermes update --branch main --backup` when confirmed.
-10. Re-apply only still-needed patches.
-11. Refresh `origin/main` and require `HEAD == origin/main`.
+8. Show summary before changes and ask for confirmation.
+9. Remove applied managed patches and require a clean working tree.
+10. Run `hermes update --branch main --backup` when confirmed.
+11. Re-apply only still-needed patches.
+12. Refresh `origin/main` and require `HEAD == origin/main`.
 
 Important prompt handling:
 
