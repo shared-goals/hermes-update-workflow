@@ -7,7 +7,7 @@
 #   2. Check patch PR statuses and applied state
 #   3. If --check: exit here
 #   4. Unapply any applied patches and require a clean tree
-#   5. Run `hermes update --branch main --backup`
+#   5. Optionally enable a full backup (default: no) and run `hermes update --branch main`
 #   6. Re-apply patches and verify HEAD == origin/main
 set -euo pipefail
 
@@ -248,7 +248,7 @@ done
 step "Summary"
 
 echo -e "  ${BOLD}Update:${NC}   ${CURRENT_SHA:0:12} → ${TARGET_SHA:0:12} (latest origin/main)"
-echo -e "  ${BOLD}Backup:${NC}   full pre-update Hermes backup is mandatory"
+echo -e "  ${BOLD}Backup:${NC}   optional full pre-update Hermes backup (default: no)"
 
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo -e "  ${BOLD}Unapply:${NC}  ${#PATCHES_APPLIED[@]} patch(es) before update:"
@@ -292,6 +292,24 @@ case "$(echo "${CONFIRM}" | tr '[:upper:]' '[:lower:]')" in
     ;;
 esac
 
+BACKUP_ARGS=()
+echo ""
+echo -e "  ${BOLD}Enable full pre-update Hermes backup?${NC} [y]es / [n]o (default: n)"
+read -r -p "  Choice [y/n, default: n]: " BACKUP_CHOICE
+case "$(echo "${BACKUP_CHOICE}" | tr '[:upper:]' '[:lower:]')" in
+  y|yes )
+    BACKUP_ARGS=(--backup)
+    ok "Full backup enabled for this run"
+    ;;
+  n|no|"" )
+    info "Full backup disabled (default)"
+    ;;
+  * )
+    err "Aborted (invalid backup choice)."
+    exit 1
+    ;;
+esac
+
 # ── 5. Unapply patches so working tree is clean ───────────────────────────────
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo ""
@@ -317,7 +335,7 @@ echo -e "     (patches will be re-applied by this script afterward)"
 info "Rollback code SHA: ${CURRENT_SHA}"
 echo ""
 
-"$HERMES_BIN" update --branch main --backup
+"$HERMES_BIN" update --branch main "${BACKUP_ARGS[@]+"${BACKUP_ARGS[@]}"}"
 
 # ── 7. Apply patches ─────────────────────────────────────────────────────────
 if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then

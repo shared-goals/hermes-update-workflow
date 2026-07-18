@@ -4,7 +4,7 @@ A [Hermes Agent](https://hermes-agent.nousresearch.com) skill for safely updatin
 
 ## The problem
 
-`hermes update` pulls the latest `main` immediately with no confirmation. This workflow shows the exact target commit, requires a fast-forward and clean tree, creates a full backup, checks patch status, and asks for explicit approval before updating.
+`hermes update` pulls the latest `main` immediately with no confirmation. This workflow shows the exact target commit, requires a fast-forward and clean tree, offers an optional full backup (default no), checks patch status, and asks for explicit approval before updating.
 
 ## Works well with
 
@@ -49,7 +49,7 @@ MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/s
 4. Requires a fast-forward path and a clean tree after managed patches are removed
 5. Checks each patch's PR/issue status — resolved patches can be retired
 6. Shows the full summary and asks for confirmation
-7. Runs `hermes update --branch main --backup`
+7. Prompts for optional full backup (default no), then runs `hermes update --branch main`
 8. Re-applies still-needed patches and restarts the gateway when necessary
 9. Verifies that the resulting `HEAD` equals the latest `origin/main`
 

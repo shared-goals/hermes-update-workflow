@@ -83,7 +83,7 @@ make patch-files gateway/run.py cli.py
    - stale/conflicting
 8. Show summary before changes and ask for confirmation.
 9. Remove applied managed patches and require a clean working tree.
-10. Run `hermes update --branch main --backup` when confirmed.
+10. Prompt whether to enable full backup (default no), then run `hermes update --branch main`.
 11. Re-apply only still-needed patches.
 12. Refresh `origin/main` and require `HEAD == origin/main`.
 
