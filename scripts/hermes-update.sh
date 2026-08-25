@@ -111,6 +111,13 @@ extract_pr_id_from_url() {
   return 1
 }
 
+release_version_from_name() {
+  local release_name="$1"
+  if [[ "$release_name" =~ v([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    echo "v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+  fi
+}
+
 cd "$HERMES_DIR"
 
 check_workflow_freshness
@@ -148,20 +155,50 @@ else
 fi
 
 LATEST_RELEASE_TAG=""
+LATEST_RELEASE_NAME=""
+LATEST_RELEASE_VERSION=""
+LATEST_RELEASE_LINE=""
 LATEST_RELEASE_URL=""
-LATEST_RELEASE_RAW="$(gh release view --repo "$REPO" --json tagName,url,isDraft,isPrerelease -q 'select(.isDraft==false and .isPrerelease==false) | .tagName + "|" + .url' 2>/dev/null || true)"
+LATEST_RELEASE_RAW="$(gh release view --repo "$REPO" --json tagName,name,url,isDraft,isPrerelease -q 'select(.isDraft==false and .isPrerelease==false) | .tagName + "|" + .name + "|" + .url' 2>/dev/null || true)"
 if [[ -n "$LATEST_RELEASE_RAW" ]]; then
   LATEST_RELEASE_TAG="${LATEST_RELEASE_RAW%%|*}"
+  LATEST_RELEASE_RAW="${LATEST_RELEASE_RAW#*|}"
+  LATEST_RELEASE_NAME="${LATEST_RELEASE_RAW%%|*}"
   LATEST_RELEASE_URL="${LATEST_RELEASE_RAW#*|}"
+  LATEST_RELEASE_VERSION="$(release_version_from_name "$LATEST_RELEASE_NAME")"
+  LATEST_RELEASE_LINE="${LATEST_RELEASE_VERSION%.*}"
 fi
 
 LOCAL_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+CURRENT_RELEASE_VERSION=""
+CURRENT_RELEASE_LINE=""
+if [[ -n "$LOCAL_TAG" ]]; then
+  CURRENT_RELEASE_NAME="$(gh release view "$LOCAL_TAG" --repo "$REPO" --json name -q '.name' 2>/dev/null || true)"
+  CURRENT_RELEASE_VERSION="$(release_version_from_name "$CURRENT_RELEASE_NAME")"
+  CURRENT_RELEASE_LINE="${CURRENT_RELEASE_VERSION%.*}"
+fi
+
 if [[ -n "$LATEST_RELEASE_TAG" && -n "$LATEST_RELEASE_URL" ]]; then
-  if [[ "$LOCAL_TAG" != "$LATEST_RELEASE_TAG" ]]; then
-    warn "New release available: ${LATEST_RELEASE_TAG}"
+  if [[ -n "$CURRENT_RELEASE_VERSION" ]]; then
+    info "Current release: ${CURRENT_RELEASE_VERSION}"
+  elif [[ -n "$LOCAL_TAG" ]]; then
+    warn "Current release: unavailable (${LOCAL_TAG})"
+  else
+    warn "Current release: unavailable"
+  fi
+  if [[ -n "$LATEST_RELEASE_VERSION" ]]; then
+    info "Following release: ${LATEST_RELEASE_VERSION}"
+  else
+    info "Following release: ${LATEST_RELEASE_TAG}"
+  fi
+  if [[ -n "$CURRENT_RELEASE_LINE" && "$CURRENT_RELEASE_LINE" == "$LATEST_RELEASE_LINE" ]]; then
+    ok "Release line ${LATEST_RELEASE_LINE} already present"
+    info "    · ${LATEST_RELEASE_URL}"
+  elif [[ -n "$LATEST_RELEASE_VERSION" ]]; then
+    warn "New release line available: ${LATEST_RELEASE_LINE}"
     info "    · ${LATEST_RELEASE_URL}"
   else
-    ok "Latest release already present: ${LATEST_RELEASE_TAG}"
+    warn "New release available: ${LATEST_RELEASE_TAG}"
     info "    · ${LATEST_RELEASE_URL}"
   fi
 else
