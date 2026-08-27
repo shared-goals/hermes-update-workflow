@@ -55,7 +55,9 @@ MY_HERMES_REPO=~/my-hermes bash ~/.hermes/skills/devops/hermes-update-workflow/s
 
 ## Patch management
 
-Patches live in `~/my-hermes/patches/` as self-contained pairs:
+Shared fixes can ship in this repository's `patches/` directory. Personal or
+newly-authored fixes live in `~/my-hermes/patches/`. Both use self-contained
+pairs:
 
 ```
 patches/
@@ -72,6 +74,12 @@ apply_to: path/to/file.py
 ```
 
 Track `issue` when available — issues outlive PRs and a CLOSED issue reliably means the fix landed upstream.
+
+The updater processes bundled and local pairs together. A local pair with the
+same basename overrides the bundled pair, allowing patch context to be refreshed
+without applying the same logical fix twice. Bundled assets remain immutable
+during 3-way application so an update cannot make the installed skill appear
+locally modified.
 
 ## Tip: guard against accidental `hermes update`
 

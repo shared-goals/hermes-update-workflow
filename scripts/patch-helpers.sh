@@ -90,6 +90,7 @@ refresh_patch_after_3way() {
 apply_managed_patch() {
   local repo_path="$1"
   local patch_path="$2"
+  local refresh_after_3way="${3:-true}"
 
   PATCH_APPLY_RESULT=""
 
@@ -116,7 +117,7 @@ apply_managed_patch() {
     return 1
   fi
 
-  if refresh_patch_after_3way "$repo_path" "$patch_path"; then
+  if [[ "$refresh_after_3way" == "true" ]] && refresh_patch_after_3way "$repo_path" "$patch_path"; then
     PATCH_APPLY_RESULT="applied_3way_refreshed"
   else
     PATCH_APPLY_RESULT="applied_3way"

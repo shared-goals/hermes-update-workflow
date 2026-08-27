@@ -1,0 +1,86 @@
+diff --git a/plugins/platforms/telegram/adapter.py b/plugins/platforms/telegram/adapter.py
+index 11259b6db0..d9633164cd 100644
+--- a/plugins/platforms/telegram/adapter.py
++++ b/plugins/platforms/telegram/adapter.py
+@@ -10531,6 +10531,45 @@ class TelegramAdapter(BasePlatformAdapter):
+         except Exception:
+             return None
+ 
++    @staticmethod
++    def _slice_telegram_utf16(text: str, offset: int, length: int) -> str:
++        """Return a Telegram entity span whose offsets are UTF-16 code units."""
++        start = max(0, int(offset))
++        end = start + max(0, int(length))
++        units = 0
++        selected: list[str] = []
++        for char in text:
++            next_units = units + (2 if ord(char) > 0xFFFF else 1)
++            if next_units > start and units < end:
++                selected.append(char)
++            if units >= end:
++                break
++            units = next_units
++        return "".join(selected)
++
++    @classmethod
++    def _append_text_link_urls(cls, message: Message, text: str) -> str:
++        """Expose URLs hidden behind inbound Telegram ``text_link`` entities."""
++        links: list[tuple[str, str]] = []
++        seen: set[tuple[str, str]] = set()
++        for entity in getattr(message, "entities", None) or ():
++            if not str(getattr(entity, "type", "")).lower().endswith("text_link"):
++                continue
++            url = getattr(entity, "url", None)
++            if not isinstance(url, str) or not url:
++                continue
++            label = cls._slice_telegram_utf16(
++                text, getattr(entity, "offset", 0), getattr(entity, "length", 0)
++            ).strip()
++            pair = (label or "Ссылка", url)
++            if pair not in seen:
++                seen.add(pair)
++                links.append(pair)
++        if not links:
++            return text
++        rendered_links = "\n".join(f"- {label}: {url}" for label, url in links)
++        return f"{text}\n\nСсылки из исходного сообщения:\n{rendered_links}"
++
+     def _build_message_event(
+         self,
+         message: Message,
+@@ -10686,7 +10725,7 @@ class TelegramAdapter(BasePlatformAdapter):
+         )
+ 
+         return MessageEvent(
+-            text=message.text or "",
++            text=self._append_text_link_urls(message, message.text or ""),
+             message_type=msg_type,
+             source=source,
+             raw_message=message,
+diff --git a/tests/gateway/test_telegram_rich_messages.py b/tests/gateway/test_telegram_rich_messages.py
+index 932bce1827..7ea35330b1 100644
+--- a/tests/gateway/test_telegram_rich_messages.py
++++ b/tests/gateway/test_telegram_rich_messages.py
+@@ -771,6 +771,22 @@ def _reply_message(reply_to_id, *, reply_text=None, reply_caption=None, quote_te
+     )
+ 
+ 
++def test_text_link_entities_are_exposed_to_the_agent():
++    adapter = _make_adapter()
++    message = SimpleNamespace(
++        message_id=1001,
++        chat=SimpleNamespace(id=12345, type="private", title=None, full_name="U"),
++        from_user=SimpleNamespace(id=42, username="u", full_name="U", is_bot=False),
++        text="💡 Skill Creator",
++        entities=[SimpleNamespace(type="text_link", offset=3, length=13, url="https://example.test/skill-creator")],
++        reply_to_message=None, message_thread_id=None, is_topic_message=False, date=None,
++    )
++    assert adapter._append_text_link_urls(message, message.text) == (
++        "💡 Skill Creator\n\nСсылки из исходного сообщения:\n"
++        "- Skill Creator: https://example.test/skill-creator"
++    )
++
++
+ def _reply_message_with_rich_blocks(
+     reply_to_id,
+     *,

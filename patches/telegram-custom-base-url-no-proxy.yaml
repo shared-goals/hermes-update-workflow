@@ -1,0 +1,5 @@
+pr: "https://github.com/NousResearch/hermes-agent/pull/47192"
+issue: "https://github.com/NousResearch/hermes-agent/issues/47188"
+title: "Honor NO_PROXY for a custom Telegram Bot API hostname"
+apply_to: plugins/platforms/telegram/adapter.py
+notes: "Ports upstream PR #47192 to the current plugin layout"

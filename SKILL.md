@@ -33,6 +33,7 @@ No custom replacement of Hermes core updater logic is used. The wrapper delegate
 - `scripts/hermes-update.sh`: update/check orchestration
 - `scripts/patch-helpers.sh`: shared patch-apply logic
 - `scripts/patch-from-pr-or-files.sh`: new patch intake script
+- `patches/*.patch` + `patches/*.yaml`: bundled fixes shared by the workflow
 - `~/my-hermes/patches/*.patch`: local patch payload
 - `~/my-hermes/patches/*.yaml`: metadata sidecar
 
@@ -75,7 +76,10 @@ make patch-files gateway/run.py cli.py
 2. Fetch `origin/main`; fail instead of using a stale cached ref.
 3. Show the exact current and target SHAs plus the real commit and changed-file gap.
 4. Require that the local checkout can fast-forward to `origin/main`.
-5. Read patch sidecars (`*.yaml`) from `~/my-hermes/patches`.
+5. Read bundled patch sidecars from the skill and local sidecars from
+   `~/my-hermes/patches` (a same-named local pair overrides the bundled pair).
+   Bundled patch files are immutable; only local patch files may refresh their
+   context after a clean 3-way apply.
 6. Resolve upstream status (issue first, PR second).
 7. Detect per-patch local state:
    - not applied
@@ -164,8 +168,9 @@ ls patches/<name>.patch patches/<name>.yaml
 Use a three-layer model:
 
 1. Live runtime state: local applied patches in `~/.hermes/hermes-agent`.
-2. Durable local registry: `~/my-hermes/patches/*.patch` + `*.yaml`.
-3. Upstream truth: GitHub issue/PR state.
+2. Shared registry: bundled `patches/*.patch` + `*.yaml` from this workflow.
+3. Durable local registry: `~/my-hermes/patches/*.patch` + `*.yaml`.
+4. Upstream truth: GitHub issue/PR state.
 
 Operational pattern:
 

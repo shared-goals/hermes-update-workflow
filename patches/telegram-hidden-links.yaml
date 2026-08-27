@@ -1,0 +1,5 @@
+pr: "https://github.com/NousResearch/hermes-agent/pull/93346"
+issue: null
+title: "Expose hidden Telegram text-link URLs to the agent"
+apply_to: plugins/platforms/telegram/adapter.py
+notes: "Current-layout managed patch for upstream PR #93346"

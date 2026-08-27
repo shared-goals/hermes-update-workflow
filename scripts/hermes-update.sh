@@ -19,6 +19,7 @@ WORKFLOW_ARCHIVE_URL="${HERMES_UPDATE_WORKFLOW_ARCHIVE_URL:-https://github.com/$
 CHECK_ONLY="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUNDLED_PATCHES_DIR="${SKILL_ROOT}/patches"
 HERMES_BIN="${HERMES_DIR}/venv/bin/hermes"
 
 if [[ ! -x "$HERMES_BIN" ]]; then
@@ -78,7 +79,8 @@ check_workflow_freshness() {
   done < <(
     find "$upstream_root" -type f \
       \( -path "$upstream_root/README.md" -o -path "$upstream_root/SKILL.md" \
-      -o -path "$upstream_root/references/*" -o -path "$upstream_root/scripts/*" \) \
+      -o -path "$upstream_root/patches/*" -o -path "$upstream_root/references/*" \
+      -o -path "$upstream_root/scripts/*" \) \
       | sort
   )
 
@@ -206,14 +208,37 @@ else
 fi
 
 # ── 2. Check patch statuses (GitHub) ─────────────────────────────────────────
-step "Local patches — upstream status"
+step "Managed patches — upstream status"
 
 PATCHES_OPEN=()     # PR/issue still open → need re-apply after update
 PATCHES_MERGED=()   # PR/issue closed/merged → no longer needed
+PATCH_METADATA_FILES=()
 
+# Bundled patches ship with the workflow. A local pair with the same basename
+# overrides a bundled pair so users can refresh patch context without applying
+# the same logical fix twice.
+for yaml_file in "${BUNDLED_PATCHES_DIR}"/*.yaml; do
+  [[ -f "$yaml_file" ]] || continue
+  patch_basename="$(basename "$yaml_file")"
+  if [[ -f "${PATCHES_DIR}/${patch_basename}" ]]; then
+    local_patch_path="${PATCHES_DIR}/${patch_basename%.yaml}.patch"
+    if [[ ! -f "$local_patch_path" ]]; then
+      err "Incomplete local override: ${PATCHES_DIR}/${patch_basename} has no matching .patch"
+      exit 1
+    fi
+    info "Local override: ${patch_basename}"
+    continue
+  fi
+  PATCH_METADATA_FILES+=("$yaml_file")
+done
 for yaml_file in "${PATCHES_DIR}"/*.yaml; do
   [[ -f "$yaml_file" ]] || continue
-  patch_file="$(basename "${yaml_file%.yaml}.patch")"
+  PATCH_METADATA_FILES+=("$yaml_file")
+done
+
+for yaml_file in "${PATCH_METADATA_FILES[@]+"${PATCH_METADATA_FILES[@]}"}"; do
+  patch_path="${yaml_file%.yaml}.patch"
+  patch_file="$(basename "$patch_path")"
 
   ISSUE_URL=$(grep '^issue:' "$yaml_file" | awk '{print $2}' | tr -d '"')
   PR_URL=$(grep '^pr:' "$yaml_file" | awk '{print $2}' | tr -d '"')
@@ -231,7 +256,7 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
     ISSUE_LINK="$ISSUE_URL"
     if [[ "$ISSUE_STATE" == "CLOSED" ]]; then
       ok "Issue CLOSED — patch no longer needed: ${TITLE} (${ISSUE_LINK})"
-      PATCHES_MERGED+=("$patch_file")
+      PATCHES_MERGED+=("$patch_path")
       RESOLVED=true
     else
       warn "Issue open  — ${TITLE} (${ISSUE_LINK})"
@@ -249,35 +274,35 @@ for yaml_file in "${PATCHES_DIR}"/*.yaml; do
     PR_LINK="$PR_URL"
     if [[ "$PR_STATE" == "MERGED" ]]; then
       ok "PR MERGED — patch no longer needed: ${TITLE} (${PR_LINK})"
-      PATCHES_MERGED+=("$patch_file")
+      PATCHES_MERGED+=("$patch_path")
       RESOLVED=true
     else
       warn "PR open  — ${TITLE} (${PR_LINK})"
     fi
   fi
 
-  [[ "$RESOLVED" == "false" ]] && PATCHES_OPEN+=("$patch_file")
+  [[ "$RESOLVED" == "false" ]] && PATCHES_OPEN+=("$patch_path")
 done
 
 # ── 3. Check which patches are currently applied ──────────────────────────────
-step "Local patches — applied state"
+step "Managed patches — applied state"
 
 PATCHES_APPLIED=()   # open + already applied (need unapply before update)
 PATCHES_PENDING=()   # open + not applied
 
-for patch_file in "${PATCHES_OPEN[@]+"${PATCHES_OPEN[@]}"}"; do
-  patch_path="${PATCHES_DIR}/${patch_file}"
-  [[ -f "$patch_path" ]] || { err "Patch file not found: ${patch_path}"; continue; }
+for patch_path in "${PATCHES_OPEN[@]+"${PATCHES_OPEN[@]}"}"; do
+  patch_file="$(basename "$patch_path")"
+  [[ -f "$patch_path" ]] || { err "Patch file not found: ${patch_path}"; exit 1; }
 
   if git apply --check --reverse "$patch_path" 2>/dev/null; then
     ok  "Applied:     ${patch_file}"
-    PATCHES_APPLIED+=("$patch_file")
+    PATCHES_APPLIED+=("$patch_path")
   elif git apply --check "$patch_path" 2>/dev/null; then
     warn "Not applied: ${patch_file}"
-    PATCHES_PENDING+=("$patch_file")
+    PATCHES_PENDING+=("$patch_path")
   else
     err  "Stale (won't apply cleanly): ${patch_file} — needs rebuild"
-    PATCHES_PENDING+=("$patch_file")
+    PATCHES_PENDING+=("$patch_path")
   fi
 done
 
@@ -289,21 +314,21 @@ echo -e "  ${BOLD}Backup:${NC}   optional full pre-update Hermes backup (default
 
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo -e "  ${BOLD}Unapply:${NC}  ${#PATCHES_APPLIED[@]} patch(es) before update:"
-  for p in "${PATCHES_APPLIED[@]}"; do info "    · $p"; done
+  for p in "${PATCHES_APPLIED[@]}"; do info "    · $(basename "$p")"; done
 fi
 
 PATCHES_TO_APPLY=("${PATCHES_APPLIED[@]+"${PATCHES_APPLIED[@]}"}" "${PATCHES_PENDING[@]+"${PATCHES_PENDING[@]}"}")
 
 if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
   echo -e "  ${BOLD}Patches:${NC}  ${#PATCHES_TO_APPLY[@]} to apply after update:"
-  for p in "${PATCHES_TO_APPLY[@]}"; do info "    · $p"; done
+  for p in "${PATCHES_TO_APPLY[@]}"; do info "    · $(basename "$p")"; done
 else
   echo -e "  ${BOLD}Patches:${NC}  none needed"
 fi
 
 if [[ ${#PATCHES_MERGED[@]} -gt 0 ]]; then
   echo -e "  ${BOLD}Retired:${NC}  ${#PATCHES_MERGED[@]} patch(es) merged upstream — can delete:"
-  for p in "${PATCHES_MERGED[@]}"; do info "    · $p"; done
+  for p in "${PATCHES_MERGED[@]}"; do info "    · $(basename "$p")"; done
 fi
 
 if [[ "$CHECK_ONLY" == "--check" ]]; then
@@ -351,8 +376,8 @@ esac
 if [[ ${#PATCHES_APPLIED[@]} -gt 0 ]]; then
   echo ""
   step "Unapplying patches before update"
-  for patch_file in "${PATCHES_APPLIED[@]}"; do
-    patch_path="${PATCHES_DIR}/${patch_file}"
+  for patch_path in "${PATCHES_APPLIED[@]}"; do
+    patch_file="$(basename "$patch_path")"
     git apply --reverse "$patch_path"
     ok "Unapplied: ${patch_file}"
   done
@@ -378,11 +403,18 @@ echo ""
 if [[ ${#PATCHES_TO_APPLY[@]} -gt 0 ]]; then
   echo ""
   step "Applying patches"
-  for patch_file in "${PATCHES_TO_APPLY[@]}"; do
-    patch_path="${PATCHES_DIR}/${patch_file}"
+  for patch_path in "${PATCHES_TO_APPLY[@]}"; do
+    patch_file="$(basename "$patch_path")"
     [[ -f "$patch_path" ]] || { err "Patch file not found: ${patch_path}"; continue; }
 
-    if apply_managed_patch "$HERMES_DIR" "$patch_path"; then
+    refresh_after_3way=true
+    if [[ "$patch_path" == "${BUNDLED_PATCHES_DIR}/"* ]]; then
+      # Bundled patches are installed skill assets. Do not mutate them during
+      # 3-way context refreshes or the freshness check will report drift.
+      refresh_after_3way=false
+    fi
+
+    if apply_managed_patch "$HERMES_DIR" "$patch_path" "$refresh_after_3way"; then
       case "$PATCH_APPLY_RESULT" in
         applied_direct)
           ok "Applied: ${patch_file}"
