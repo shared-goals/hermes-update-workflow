@@ -136,10 +136,19 @@ CURRENT_SHA="$(git rev-parse HEAD)"
 TARGET_SHA="$(git rev-parse origin/main)"
 
 if ! git merge-base --is-ancestor HEAD origin/main; then
-  err "Local HEAD cannot fast-forward to origin/main; refusing to update"
+  warn "Local HEAD cannot fast-forward to origin/main; forcing alignment"
   info "Current: ${CURRENT_SHA}"
   info "Target:  ${TARGET_SHA}"
-  exit 1
+  if [[ -n "$(git status --porcelain)" ]]; then
+    err "Working tree is dirty; refusing to force-reset local-only commits"
+    git status --short
+    exit 1
+  fi
+  info "Discarding local-only commit(s) not on origin/main:"
+  git log --oneline origin/main..HEAD | sed 's/^/    · /'
+  git reset --hard origin/main
+  CURRENT_SHA="$(git rev-parse HEAD)"
+  ok "Forced HEAD to origin/main (${CURRENT_SHA})"
 fi
 
 BEHIND_COUNT="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "unknown")"
